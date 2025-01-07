@@ -7,13 +7,18 @@ Create Fargate cluster with AWS CDK using TypeScript
 - AWS CDK installed
 - AWS CLI installed and configured
 - Node.js installed
-- TypeScript installed (npm install -g ts-node)
 - Docker installed
 
-## Steps
+## Setup
 
 ```bash
 npm install -g aws-cdk
 npm install
 cdk bootstrap
+```
+
+## Deploy
+
+```bash
+cdk deploy
 ```
