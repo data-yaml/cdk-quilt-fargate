@@ -12,7 +12,8 @@ export class PackageEngineStack extends cdk.Stack {
         super(scope, id, props);
 
         // Configuration
-        const ECR_REPO = "730278974607.dkr.ecr.us-east-1.amazonaws.com/quiltdata/services/package-engine";
+        const ECR_REPO = "730278974607.dkr.ecr.us-east-1.amazonaws.com";
+        const ECR_IMAGE = "quiltdata/services/package-engine";
         const IMAGE_HASH = "latest";
         const HOSTED_ZONE_ID = "Z050530821I8SLJEKKYY6";
         const DNS_NAME = "package-engine.quiltdata.com";
@@ -37,7 +38,7 @@ export class PackageEngineStack extends cdk.Stack {
         taskDefinition.addContainer("PackageEngineContainer", {
             image: ecs.ContainerImage.fromEcrRepository(
                 new ecr.Repository(this, "PackageEngineRepository", {
-                    repositoryName: ECR_REPO,
+                    repositoryName: ECR_IMAGE,
                 }),
                 IMAGE_HASH
             ),
