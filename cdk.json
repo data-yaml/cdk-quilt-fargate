@@ -1,0 +1,6 @@
+{
+  "app": "npx ts-node bin/package-engine.ts",
+  "context": {
+    "@aws-cdk/core:newStyleStackSynthesis": true
+  }
+}
