@@ -2,6 +2,7 @@ import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as ecs_patterns from "aws-cdk-lib/aws-ecs-patterns";
 import * as route53 from "aws-cdk-lib/aws-route53";
+import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as route53Targets from "aws-cdk-lib/aws-route53-targets";
 import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
@@ -11,7 +12,7 @@ export class PackageEngineStack extends cdk.Stack {
         super(scope, id, props);
 
         // Configuration
-        const ECR_REPO = "public.ecr.aws/quiltdata/services/package-engine";
+        const ECR_REPO = "730278974607.dkr.ecr.us-east-1.amazonaws.com/quiltdata/services/package-engine";
         const IMAGE_HASH = "latest";
         const HOSTED_ZONE_ID = "Z050530821I8SLJEKKYY6";
         const DNS_NAME = "package-engine.quiltdata.com";
@@ -34,7 +35,12 @@ export class PackageEngineStack extends cdk.Stack {
         });
 
         taskDefinition.addContainer("PackageEngineContainer", {
-            image: ecs.ContainerImage.fromRegistry(`${ECR_REPO}:${IMAGE_HASH}`),
+            image: ecs.ContainerImage.fromEcrRepository(
+                new ecr.Repository(this, "PackageEngineRepository", {
+                    repositoryName: ECR_REPO,
+                }),
+                IMAGE_HASH
+            ),
             portMappings: [{ containerPort: 80 }],
         });
 
