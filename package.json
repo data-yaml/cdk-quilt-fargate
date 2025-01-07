@@ -1,0 +1,9 @@
+{
+  "name": "cdk-fargate-ts",
+  "version": "1.0.0",
+  "dependencies": {
+    "aws-cdk": "^2.174.1",
+    "aws-cdk-lib": "^2.174.1",
+    "constructs": "^10.4.2"
+  }
+}
