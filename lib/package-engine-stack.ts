@@ -13,7 +13,7 @@ export class PackageEngineStack extends cdk.Stack {
         super(scope, id, props);
 
         // Configuration
-        const ECR_IMAGE = "quiltdata/services/package-engine";
+        const ECR_IMAGE = "package-engine";
         const IMAGE_HASH = "latest";
         const HOSTED_ZONE_ID = "Z050530821I8SLJEKKYY6";
         const DNS_NAME = "package-engine.quilttest.com";
