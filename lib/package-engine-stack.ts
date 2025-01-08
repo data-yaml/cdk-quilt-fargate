@@ -1,10 +1,11 @@
+import * as cdk from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
+import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as ecs_patterns from "aws-cdk-lib/aws-ecs-patterns";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as route53 from "aws-cdk-lib/aws-route53";
-import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as route53Targets from "aws-cdk-lib/aws-route53-targets";
-import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
 
 export class PackageEngineStack extends cdk.Stack {
@@ -30,15 +31,27 @@ export class PackageEngineStack extends cdk.Stack {
         });
 
         // 3. Create a Fargate Task Definition
+        const executionRole = new iam.Role(this, "PackageEngineExecutionRole", {
+            assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
+        });
+
+        // Add permissions for ECR and CloudWatch Logs
+        executionRole.addManagedPolicy(
+            iam.ManagedPolicy.fromAwsManagedPolicyName(
+                "service-role/AmazonECSTaskExecutionRolePolicy",
+            ),
+        );
+
+        // Create a Fargate Task Definition with Execution Role
         const taskDefinition = new ecs.FargateTaskDefinition(
             this,
             "PackageEngineTaskDef",
             {
                 memoryLimitMiB: 512,
                 cpu: 256,
+                executionRole: executionRole, // Attach the execution role here
             },
         );
-
         taskDefinition.addContainer("PackageEngineContainer", {
             image: ecs.ContainerImage.fromEcrRepository(
                 new ecr.Repository(this, "PackageEngineRepository", {
