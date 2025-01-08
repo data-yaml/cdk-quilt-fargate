@@ -17,7 +17,7 @@ export class PackageEngineStack extends cdk.Stack {
         const ECR_IMAGE = "quiltdata/services/package-engine";
         const IMAGE_HASH = "latest";
         const HOSTED_ZONE_ID = "Z050530821I8SLJEKKYY6";
-        const DNS_NAME = "package-engine.quiltdata.com";
+        const DNS_NAME = "package-engine.quilttest.com";
 
         // 1. Create a VPC
         const vpc = new ec2.Vpc(this, "PackageEngineVpc", {
