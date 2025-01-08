@@ -13,7 +13,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
 
     // Variables
     const region = this.region; // Use the region from the stack context
-    const repositoryName = "package-engine";
+    const repositoryName = "package-engine"; // Use the name of the existing repo
     const imageTag = "latest"; // Replace with your desired image tag
     const hostedZoneId = "Z050530821I8SLJEKKYY6";
     const dnsName = "package-engine.quilttest.com";
@@ -29,10 +29,8 @@ export class CdkQuiltFargateStack extends cdk.Stack {
       vpc,
     });
 
-    // 3. Create or Reference an ECR Repository
-    const repository = new ecr.Repository(this, "CdkQuiltFargateRepo", {
-      repositoryName,
-    });
+    // 3. Reference an Existing ECR Repository
+    const repository = ecr.Repository.fromRepositoryName(this, "CdkQuiltFargateRepo", repositoryName);
 
     // 4. Create an IAM Role for Fargate Task Execution
     const executionRole = new iam.Role(this, "CdkQuiltFargateExecutionRole", {
