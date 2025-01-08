@@ -59,7 +59,7 @@ export class PackageEngineStack extends cdk.Stack {
                 }),
                 IMAGE_HASH,
             ),
-            portMappings: [{ containerPort: 80 }],
+            portMappings: [{ containerPort: 3000 }],
         });
 
         // 4. Create an ECS Service with Application Load Balancer
@@ -72,6 +72,7 @@ export class PackageEngineStack extends cdk.Stack {
                 taskDefinition,
                 desiredCount: 1,
                 publicLoadBalancer: true,
+                listenerPort: 80,
             },
         );
 
