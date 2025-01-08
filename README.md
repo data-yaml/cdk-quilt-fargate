@@ -22,3 +22,11 @@ cdk bootstrap
 ```bash
 cdk deploy
 ```
+
+## Test Permissions
+
+```bash
+ aws ecr batch-get-image --registry-id  730278974607\
+    --repository-name quiltdata/services/package-engine\
+    --image-ids imageTag=latest --region us-east-1
+```
