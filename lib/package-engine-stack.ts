@@ -13,7 +13,6 @@ export class PackageEngineStack extends cdk.Stack {
         super(scope, id, props);
 
         // Configuration
-        const SOURCE_ACCOUNT_ID = "730278974607";
         const ECR_IMAGE = "quiltdata/services/package-engine";
         const IMAGE_HASH = "latest";
         const HOSTED_ZONE_ID = "Z050530821I8SLJEKKYY6";
@@ -53,20 +52,17 @@ export class PackageEngineStack extends cdk.Stack {
             },
         );
 
-        const repository = ecr.Repository.fromRepositoryAttributes(
+        const repository = ecr.Repository.fromRepositoryName(
             this,
-            "CrossAccountEcrRepository",
-            {
-                repositoryArn:
-                    `arn:aws:ecr:us-east-1:${SOURCE_ACCOUNT_ID}:repository/${ECR_IMAGE}`,
-                repositoryName: ECR_IMAGE,
-            },
+            "PackageEngineRepository",
+            ECR_IMAGE,
         );
 
         taskDefinition.addContainer("PackageEngineContainer", {
             image: ecs.ContainerImage.fromEcrRepository(repository, IMAGE_HASH),
             portMappings: [{ containerPort: 3000 }],
         });
+
         // 4. Create an ECS Service with Application Load Balancer
         const fargateService = new ecs_patterns
             .ApplicationLoadBalancedFargateService(
