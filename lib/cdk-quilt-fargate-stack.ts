@@ -60,6 +60,9 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                 memoryLimitMiB: 512,
                 cpu: 256,
                 executionRole,
+                runtimePlatform: {
+                    cpuArchitecture: ecs.CpuArchitecture.ARM64,
+                },
             },
         );
 
@@ -102,6 +105,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                 circuitBreaker: { rollback: true },
             },
         );
+
         // 7. Configure Route 53 DNS
         const hostedZone = route53.HostedZone.fromHostedZoneAttributes(
             this,
