@@ -7,9 +7,26 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import * as route53Targets from "aws-cdk-lib/aws-route53-targets";
 import * as logs from "aws-cdk-lib/aws-logs";
+import { Construct } from "constructs";
+
+interface ContainerConfig {
+    port: number;
+    cpu: number;
+    memory: number;
+    imageTag: string;
+    logRetention: logs.RetentionDays;
+}
 
 export class CdkQuiltFargateStack extends cdk.Stack {
-    constructor(scope: cdk.App, id: string, props?: cdk.StackProps) {
+    private readonly containerConfig: ContainerConfig = {
+        port: 3000,
+        cpu: 256,
+        memory: 512,
+        imageTag: "latest",
+        logRetention: logs.RetentionDays.ONE_WEEK,
+    };
+
+    constructor(scope: Construct, id: string, props?: cdk.StackProps) {
         super(scope, id, props);
 
         // Variables
@@ -52,13 +69,18 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             ),
         );
 
-        // 5. Create a Fargate Task Definition
+        // Create log group with configured retention
+        const logGroup = new logs.LogGroup(this, "CdkQuiltFargateLogGroup", {
+            retention: this.containerConfig.logRetention,
+        });
+
+        // Create task definition with configured resources
         const taskDefinition = new ecs.FargateTaskDefinition(
             this,
             "CdkQuiltFargateTaskDef",
             {
-                memoryLimitMiB: 512,
-                cpu: 256,
+                memoryLimitMiB: this.containerConfig.memory,
+                cpu: this.containerConfig.cpu,
                 executionRole,
                 runtimePlatform: {
                     cpuArchitecture: ecs.CpuArchitecture.ARM64,
@@ -66,44 +88,31 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             },
         );
 
-        const logGroup = new logs.LogGroup(this, "CdkQuiltFargateLogGroup", {
-            retention: logs.RetentionDays.ONE_WEEK,
-        });
-
-        taskDefinition.addContainer("CdkQuiltFargateContainer", {
-            image: ecs.ContainerImage.fromEcrRepository(repository, imageTag),
-            portMappings: [{ containerPort: 3000 }],
-            healthCheck: {
-                command: [
-                    "CMD-SHELL",
-                    "curl -f http://localhost:3000/health || exit 1",
-                ],
-                interval: cdk.Duration.seconds(30),
-                timeout: cdk.Duration.seconds(5),
-                retries: 3,
-                startPeriod: cdk.Duration.seconds(60),
-            },
-            logging: ecs.LogDrivers.awsLogs({
-                logGroup,
-                streamPrefix: "CdkQuiltFargate",
-            }),
-        });
-
-        // 6. Create an ECS Service with Application Load Balancer
-        const fargateService = new ecs_patterns
-            .ApplicationLoadBalancedFargateService(
-            this,
-            "CdkQuiltFargateService",
+        // Configure container with health check and logging
+        const container = taskDefinition.addContainer(
+            "CdkQuiltFargateContainer",
             {
-                cluster,
-                taskDefinition,
-                desiredCount: 1,
-                publicLoadBalancer: true,
-                deploymentController: {
-                    type: ecs.DeploymentControllerType.ECS,
-                },
-                circuitBreaker: { rollback: true },
+                image: ecs.ContainerImage.fromEcrRepository(
+                    repository,
+                    this.containerConfig.imageTag,
+                ),
+                portMappings: [{
+                    containerPort: this.containerConfig.port,
+                    hostPort: this.containerConfig.port,
+                    protocol: ecs.Protocol.TCP,
+                }],
+                healthCheck: this.createHealthCheck(this.containerConfig.port),
+                logging: ecs.LogDrivers.awsLogs({
+                    logGroup,
+                    streamPrefix: "CdkQuiltFargate",
+                }),
             },
+        );
+
+        // Create Fargate service with ALB
+        const fargateService = this.createFargateService(
+            cluster,
+            taskDefinition,
         );
 
         // 7. Configure Route 53 DNS
@@ -131,5 +140,39 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             value: fargateService.loadBalancer.loadBalancerDnsName,
         });
         new cdk.CfnOutput(this, "ServiceURL", { value: `http://${dnsName}` });
+    }
+
+    private createHealthCheck(port: number): ecs.HealthCheck {
+        return {
+            command: [
+                "CMD-SHELL",
+                `curl -f -s -S http://localhost:${port}/health || exit 1`,
+            ],
+            interval: cdk.Duration.seconds(30),
+            timeout: cdk.Duration.seconds(5),
+            retries: 3,
+            startPeriod: cdk.Duration.seconds(60),
+        };
+    }
+
+    private createFargateService(
+        cluster: ecs.ICluster,
+        taskDefinition: ecs.FargateTaskDefinition,
+    ): ecs_patterns.ApplicationLoadBalancedFargateService {
+        return new ecs_patterns.ApplicationLoadBalancedFargateService(
+            this,
+            "CdkQuiltFargateService",
+            {
+                cluster,
+                taskDefinition,
+                desiredCount: 1,
+                publicLoadBalancer: true,
+                listenerPort: 80,
+                deploymentController: {
+                    type: ecs.DeploymentControllerType.ECS,
+                },
+                circuitBreaker: { rollback: true },
+            },
+        );
     }
 }
