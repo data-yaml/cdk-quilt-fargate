@@ -102,7 +102,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                     protocol: ecs.Protocol.TCP,
                 }],
                 healthCheck: {
-                    command: ["CMD-SHELL", "curl -f http://localhost:3000/docs || exit 1"],
+                    command: ["CMD-SHELL", "curl -f http://host.docker.internal:3000/docs || exit 1"],
                     interval: cdk.Duration.seconds(30),
                     timeout: cdk.Duration.seconds(5),
                     retries: 3,
