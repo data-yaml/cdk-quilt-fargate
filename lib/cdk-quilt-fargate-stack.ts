@@ -38,7 +38,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         const vpc = this.createVpc();
         const cluster = this.createCluster(vpc);
         const repository = this.getEcrRepository(repositoryName);
-        
+
         const taskDefinition = this.createTaskDefinition(
             repository,
         );
@@ -47,8 +47,10 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             taskDefinition,
         );
         const nlb = this.createNetworkLoadBalancer(vpc, fargateService);
-        const api = this.createApiGateway(dnsName, nlb);
-        this.configureRoute53(hostedZoneId, dnsName, api);
+        const hostedZone = this.createHostedZone(hostedZoneId, dnsName);
+        const certificate = this.createRoute53Certificate(hostedZone, dnsName);
+        const api = this.createApiGateway(certificate, dnsName, nlb);
+        this.configureRoute53(hostedZone, dnsName, api);
 
         // Outputs
         new cdk.CfnOutput(this, "ApiGatewayURL", { value: api.url });
@@ -147,7 +149,10 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         });
     }
 
-    private createNetworkLoadBalancer(vpc: ec2.Vpc, fargateService: ecs.FargateService): elbv2.NetworkLoadBalancer {
+    private createNetworkLoadBalancer(
+        vpc: ec2.Vpc,
+        fargateService: ecs.FargateService,
+    ): elbv2.NetworkLoadBalancer {
         const nlb = new elbv2.NetworkLoadBalancer(this, "CdkQuiltNLB", {
             vpc,
             internetFacing: true,
@@ -159,31 +164,52 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         });
         listener.addTargets("FargateService", {
             port: this.containerConfig.port,
-            targets: [fargateService]
+            targets: [fargateService],
         });
         return nlb;
     }
 
+    private createHostedZone(hostedZoneId: string, dnsName: string): route53.IHostedZone {
+        const hostedZone = route53.HostedZone.fromHostedZoneAttributes(
+            this,
+            "CdkQuiltHostedZone",
+            {
+                hostedZoneId,
+                zoneName: dnsName.split(".").slice(1).join("."),
+            },
+        );
+        return hostedZone;
+    }
+
+    private createRoute53Certificate(
+        hostedZone: route53.IHostedZone,
+        dnsName: string,
+    ): acm.Certificate {
+        return new acm.Certificate(
+            this,
+            "ApiGatewayCertificate",
+            {
+                domainName: dnsName,
+                validation: acm.CertificateValidation.fromDns(hostedZone),
+            },
+        );
+    }
+
     private createApiGateway(
+        certificate: acm.Certificate,
         dnsName: string,
         nlb: elbv2.NetworkLoadBalancer,
     ): apigateway.RestApi {
         const vpcLink = new apigateway.VpcLink(this, "ServiceVpcLink", {
-            targets: [nlb]
+            targets: [nlb],
         });
+
         const api = new apigateway.RestApi(this, "CdkQuiltApiGateway", {
             restApiName: "CdkQuiltService",
             description: "API Gateway for the Quilt Package Engine service",
             domainName: {
                 domainName: dnsName,
-                certificate: new acm.Certificate(
-                    this,
-                    "ApiGatewayCertificate",
-                    {
-                        domainName: dnsName,
-                        validation: acm.CertificateValidation.fromDns(),
-                    },
-                ),
+                certificate: certificate,
             },
         });
 
@@ -205,19 +231,10 @@ export class CdkQuiltFargateStack extends cdk.Stack {
     }
 
     private configureRoute53(
-        hostedZoneId: string,
+        hostedZone: route53.IHostedZone,
         dnsName: string,
         api: apigateway.RestApi,
     ): void {
-        const hostedZone = route53.HostedZone.fromHostedZoneAttributes(
-            this,
-            "CdkQuiltHostedZone",
-            {
-                hostedZoneId,
-                zoneName: dnsName.split(".").slice(1).join("."),
-            },
-        );
-
         new route53.ARecord(this, "CdkQuiltAliasRecord", {
             zone: hostedZone,
             recordName: dnsName.split(".")[0],
