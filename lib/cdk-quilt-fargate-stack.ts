@@ -4,7 +4,7 @@ import * as cdk from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as ecs from "aws-cdk-lib/aws-ecs";
-import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
+import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as route53 from "aws-cdk-lib/aws-route53";
@@ -35,26 +35,36 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         const hostedZoneId = "Z050530821I8SLJEKKYY6";
         const dnsName = "package-engine.quilttest.com";
 
-        const cluster = this.createCluster();
+        const vpc = this.createVpc();
+        const cluster = this.createCluster(vpc);
         const repository = this.getEcrRepository(repositoryName);
-        const executionRole = this.createExecutionRole();
-        const logGroup = this.createLogGroup();
-        const taskDefinition = this.createTaskDefinition(repository, executionRole, logGroup);
-        const fargateService = this.createFargateService(cluster, taskDefinition);
-        const api = this.createApiGateway(fargateService, dnsName);
+        
+        const taskDefinition = this.createTaskDefinition(
+            repository,
+        );
+        const fargateService = this.createFargateService(
+            cluster,
+            taskDefinition,
+        );
+        const nlb = this.createNetworkLoadBalancer(vpc, fargateService);
+        const api = this.createApiGateway(dnsName, nlb);
         this.configureRoute53(hostedZoneId, dnsName, api);
 
         // Outputs
         new cdk.CfnOutput(this, "ApiGatewayURL", { value: api.url });
-        new cdk.CfnOutput(this, "CustomDomainURL", { value: `https://${dnsName}` });
+        new cdk.CfnOutput(this, "CustomDomainURL", {
+            value: `https://${dnsName}`,
+        });
     }
 
-    private createCluster(): ecs.Cluster {
-        const vpc = new ec2.Vpc(this, "CdkQuiltFargateVpc", {
+    private createVpc(): ec2.Vpc {
+        return new ec2.Vpc(this, "CdkQuiltFargateVpc", {
             maxAzs: 2,
             natGateways: 1,
         });
+    }
 
+    private createCluster(vpc: ec2.Vpc): ecs.Cluster {
         return new ecs.Cluster(this, "CdkQuiltFargateCluster", {
             vpc,
         });
@@ -94,9 +104,9 @@ export class CdkQuiltFargateStack extends cdk.Stack {
 
     private createTaskDefinition(
         repository: ecr.IRepository,
-        executionRole: iam.Role,
-        logGroup: logs.LogGroup,
     ): ecs.FargateTaskDefinition {
+        const executionRole = this.createExecutionRole();
+        const logGroup = this.createLogGroup();
         const taskDefinition = new ecs.FargateTaskDefinition(
             this,
             "CdkQuiltFargateTaskDef",
@@ -137,42 +147,68 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         });
     }
 
-    private createNetworkLoadBalancer(vpc: ec2.Vpc): elbv2.NetworkLoadBalancer {
-    return new elbv2.NetworkLoadBalancer(this, 'CdkQuiltNLB', {
-        vpc,
-        internetFacing: true,
-        crossZoneEnabled: true,
-        loadBalancerName: 'quilt-nlb'
-    });
-}    
-    private createApiGateway(fargateService: ecs.FargateService, dnsName: string): apigateway.RestApi {
+    private createNetworkLoadBalancer(vpc: ec2.Vpc, fargateService: ecs.FargateService): elbv2.NetworkLoadBalancer {
+        const nlb = new elbv2.NetworkLoadBalancer(this, "CdkQuiltNLB", {
+            vpc,
+            internetFacing: true,
+            crossZoneEnabled: true,
+            loadBalancerName: "quilt-nlb",
+        });
+        const listener = nlb.addListener("Listener", {
+            port: this.containerConfig.port,
+        });
+        listener.addTargets("FargateService", {
+            port: this.containerConfig.port,
+            targets: [fargateService]
+        });
+        return nlb;
+    }
+
+    private createApiGateway(
+        dnsName: string,
+        nlb: elbv2.NetworkLoadBalancer,
+    ): apigateway.RestApi {
+        const vpcLink = new apigateway.VpcLink(this, "ServiceVpcLink", {
+            targets: [nlb]
+        });
         const api = new apigateway.RestApi(this, "CdkQuiltApiGateway", {
             restApiName: "CdkQuiltService",
-            description: "API Gateway for the Quilt Package Engine service.",
+            description: "API Gateway for the Quilt Package Engine service",
             domainName: {
                 domainName: dnsName,
-                certificate: new acm.Certificate(this, 'ApiGatewayCertificate', {
-                    domainName: dnsName,
-                    validation: acm.CertificateValidation.fromDns(),
-                }),
+                certificate: new acm.Certificate(
+                    this,
+                    "ApiGatewayCertificate",
+                    {
+                        domainName: dnsName,
+                        validation: acm.CertificateValidation.fromDns(),
+                    },
+                ),
             },
         });
 
-        const fargateEndpoint = `http://${fargateService.serviceName}.public-ip.amazonaws.com:${this.containerConfig.port}`;
-
-        // Add a resource for /package-engine
         const apiResource = api.root.addResource("package-engine");
         apiResource.addMethod(
             "ANY",
-            new apigateway.HttpIntegration(fargateEndpoint, {
-                httpMethod: "ANY",
-            })
+            new apigateway.Integration({
+                type: apigateway.IntegrationType.HTTP_PROXY,
+                integrationHttpMethod: "ANY",
+                options: {
+                    connectionType: apigateway.ConnectionType.VPC_LINK,
+                    vpcLink: vpcLink,
+                },
+                uri: `http://${nlb.loadBalancerDnsName}:${this.containerConfig.port}`,
+            }),
         );
 
         return api;
     }
 
-    private configureRoute53(hostedZoneId: string, dnsName: string, api: apigateway.RestApi): void {
+    private configureRoute53(
+        hostedZoneId: string,
+        dnsName: string,
+        api: apigateway.RestApi,
+    ): void {
         const hostedZone = route53.HostedZone.fromHostedZoneAttributes(
             this,
             "CdkQuiltHostedZone",
