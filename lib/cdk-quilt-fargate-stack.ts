@@ -88,7 +88,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             },
         );
 
-        // Configure container with health check and logging
+        // Configure container with logging
         const container = taskDefinition.addContainer(
             "CdkQuiltFargateContainer",
             {
@@ -101,13 +101,6 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                     hostPort: this.containerConfig.port,
                     protocol: ecs.Protocol.TCP,
                 }],
-                healthCheck: {
-                    command: ["CMD-SHELL", "curl -f http://host.docker.internal:3000/docs || exit 1"],
-                    interval: cdk.Duration.seconds(30),
-                    timeout: cdk.Duration.seconds(5),
-                    retries: 3,
-                    startPeriod: cdk.Duration.seconds(60),
-                },
                 logging: ecs.LogDrivers.awsLogs({
                     logGroup,
                     streamPrefix: "CdkQuiltFargate",
@@ -146,19 +139,6 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             value: fargateService.loadBalancer.loadBalancerDnsName,
         });
         new cdk.CfnOutput(this, "ServiceURL", { value: `http://${dnsName}` });
-    }
-
-    private createHealthCheck(port: number): ecs.HealthCheck {
-        return {
-            command: [
-                "CMD-SHELL",
-                `curl -f -s -S http://localhost:${port}/health || exit 1`,
-            ],
-            interval: cdk.Duration.seconds(30),
-            timeout: cdk.Duration.seconds(5),
-            retries: 3,
-            startPeriod: cdk.Duration.seconds(60),
-        };
     }
 
     private createFargateService(
