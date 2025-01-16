@@ -33,7 +33,8 @@ export class CdkQuiltFargateStack extends cdk.Stack {
 
         const repositoryName = "package-engine"; // Use the name of the existing repo
         const hostedZoneId = "Z050530821I8SLJEKKYY6";
-        const dnsName = "package-engine.quilttest.com";
+        const zoneName = "quilttest.com";
+        const dnsName = `${repositoryName}.${zoneName}`;
 
         const vpc = this.createVpc();
         const cluster = this.createCluster(vpc);
@@ -47,7 +48,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             taskDefinition,
         );
         const nlb = this.createNetworkLoadBalancer(vpc, fargateService);
-        const hostedZone = this.createHostedZone(hostedZoneId, dnsName);
+        const hostedZone = this.createHostedZone(hostedZoneId, zoneName);
         const certificate = this.createRoute53Certificate(hostedZone, dnsName);
         const api = this.createApiGateway(certificate, dnsName, nlb);
         this.configureRoute53(hostedZone, dnsName, api);
@@ -169,13 +170,13 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         return nlb;
     }
 
-    private createHostedZone(hostedZoneId: string, dnsName: string): route53.IHostedZone {
+    private createHostedZone(hostedZoneId: string, zoneName: string): route53.IHostedZone {
         const hostedZone = route53.HostedZone.fromHostedZoneAttributes(
             this,
             "CdkQuiltHostedZone",
             {
                 hostedZoneId,
-                zoneName: dnsName.split(".").slice(1).join("."),
+                zoneName,
             },
         );
         return hostedZone;
@@ -232,12 +233,12 @@ export class CdkQuiltFargateStack extends cdk.Stack {
 
     private configureRoute53(
         hostedZone: route53.IHostedZone,
-        dnsName: string,
+        repositoryName: string,
         api: apigateway.RestApi,
     ): void {
         new route53.ARecord(this, "CdkQuiltAliasRecord", {
             zone: hostedZone,
-            recordName: dnsName.split(".")[0],
+            recordName: repositoryName,
             target: route53.RecordTarget.fromAlias(
                 new route53Targets.ApiGateway(api),
             ),
