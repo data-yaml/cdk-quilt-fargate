@@ -5,8 +5,8 @@ import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import * as route53Targets from "aws-cdk-lib/aws-route53-targets";
-import * as logs from "aws-cdk-lib/aws-logs";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
+import * as logs from "aws-cdk-lib/aws-logs";
 import { Construct } from "constructs";
 
 interface ContainerConfig {
@@ -29,7 +29,6 @@ export class CdkQuiltFargateStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props?: cdk.StackProps) {
         super(scope, id, props);
 
-        // Variables
         const repositoryName = "package-engine"; // Use the name of the existing repo
         const hostedZoneId = "Z050530821I8SLJEKKYY6";
         const dnsName = "package-engine.quilttest.com";
@@ -52,7 +51,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             repositoryName,
         );
 
-        // 4. Create an IAM Role for Fargate Task Execution
+        // 4. Create IAM Role for Task Execution
         const executionRole = new iam.Role(
             this,
             "CdkQuiltFargateExecutionRole",
@@ -67,12 +66,12 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             ),
         );
 
-        // Create log group with configured retention
+        // 5. Create Log Group
         const logGroup = new logs.LogGroup(this, "CdkQuiltFargateLogGroup", {
             retention: this.containerConfig.logRetention,
         });
 
-        // Create task definition with configured resources
+        // 6. Create Task Definition
         const taskDefinition = new ecs.FargateTaskDefinition(
             this,
             "CdkQuiltFargateTaskDef",
@@ -80,68 +79,56 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                 memoryLimitMiB: this.containerConfig.memory,
                 cpu: this.containerConfig.cpu,
                 executionRole,
-                runtimePlatform: {
-                    cpuArchitecture: ecs.CpuArchitecture.ARM64,
-                },
             },
         );
 
-        // Configure container with logging
-        const container = taskDefinition.addContainer(
-            "CdkQuiltFargateContainer",
-            {
-                image: ecs.ContainerImage.fromEcrRepository(
-                    repository,
-                    this.containerConfig.imageTag,
-                ),
-                portMappings: [{
+        taskDefinition.addContainer("CdkQuiltFargateContainer", {
+            image: ecs.ContainerImage.fromEcrRepository(
+                repository,
+                this.containerConfig.imageTag,
+            ),
+            portMappings: [
+                {
                     containerPort: this.containerConfig.port,
-                    protocol: ecs.Protocol.TCP,
-                }],
-                logging: ecs.LogDrivers.awsLogs({
-                    logGroup,
-                    streamPrefix: "CdkQuiltFargate",
-                }),
-            },
-        );
+                },
+            ],
+            logging: ecs.LogDrivers.awsLogs({
+                logGroup,
+                streamPrefix: "CdkQuiltFargate",
+            }),
+        });
 
-        // Create Fargate service
+        // 7. Create Fargate Service
         const fargateService = new ecs.FargateService(this, "CdkQuiltFargateService", {
             cluster,
             taskDefinition,
-            desiredCount: 1,
             assignPublicIp: true,
         });
 
-        // Create API Gateway
+        // 8. Create API Gateway
         const api = new apigateway.RestApi(this, "CdkQuiltApiGateway", {
             restApiName: "CdkQuiltService",
             description: "API Gateway for the Quilt Package Engine service.",
         });
 
-        // Create a VPC Link for the API Gateway to connect to the Fargate service
-        const vpcLink = new apigateway.VpcLink(this, "CdkQuiltVpcLink", {
-            targets: [fargateService],
-        });
-
-        // Create an API Gateway resource and method
+        // Add HTTP integration to API Gateway
         const apiResource = api.root.addResource("package-engine");
-        apiResource.addMethod("GET", new apigateway.Integration({
-            type: apigateway.IntegrationType.HTTP_PROXY,
-            integrationHttpMethod: "ANY",
-            uri: `http://${fargateService.loadBalancer.loadBalancerDnsName}:${this.containerConfig.port}`,
-            options: {
-                connectionType: apigateway.ConnectionType.VPC_LINK,
-                vpcLink,
-            },
-        }));
+        apiResource.addMethod(
+            "ANY",
+            new apigateway.HttpIntegration(
+                `http://${fargateService.serviceName}.ecs.${cdk.Aws.REGION}.amazonaws.com:${this.containerConfig.port}`,
+                {
+                    httpMethod: "ANY",
+                }
+            )
+        );
 
-        // 7. Configure Route 53 DNS
+        // 9. Configure Route 53
         const hostedZone = route53.HostedZone.fromHostedZoneAttributes(
             this,
             "CdkQuiltHostedZone",
             {
-                hostedZoneId: hostedZoneId,
+                hostedZoneId,
                 zoneName: dnsName.split(".").slice(1).join("."),
             },
         );
@@ -154,8 +141,8 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             ),
         });
 
-        // Output relevant values
+        // Outputs
         new cdk.CfnOutput(this, "ApiGatewayURL", { value: api.url });
-        new cdk.CfnOutput(this, "ServiceURL", { value: `http://${dnsName}` });
+        new cdk.CfnOutput(this, "CustomDomainURL", { value: `https://${dnsName}` });
     }
 }
