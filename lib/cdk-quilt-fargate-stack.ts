@@ -149,17 +149,17 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             },
         });
 
+        const fargateEndpoint = `http://${fargateService.serviceName}.public-ip.amazonaws.com:${this.containerConfig.port}`;
+
+        // Add a resource for /package-engine
         const apiResource = api.root.addResource("package-engine");
         apiResource.addMethod(
             "ANY",
-            new apigateway.HttpIntegration(
-                `http://${fargateService.serviceName}.ecs.${cdk.Aws.REGION}.amazonaws.com:${this.containerConfig.port}`,
-                {
-                    httpMethod: "ANY",
-                }
-            )
+            new apigateway.HttpIntegration(fargateEndpoint, {
+                httpMethod: "ANY",
+            })
         );
-
+        
         return api;
     }
 
