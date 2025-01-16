@@ -9,6 +9,8 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import * as route53Targets from "aws-cdk-lib/aws-route53-targets";
+import * as s3 from "aws-cdk-lib/aws-s3";
+
 import { Construct } from "constructs";
 
 interface ContainerConfig {
@@ -20,6 +22,7 @@ interface ContainerConfig {
 }
 
 export class CdkQuiltFargateStack extends cdk.Stack {
+
     private readonly containerConfig: ContainerConfig = {
         port: 3000,
         cpu: 256,
@@ -163,20 +166,76 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         vpc: ec2.Vpc,
         fargateService: ecs.FargateService,
     ): elbv2.NetworkLoadBalancer {
+        const bucket = new s3.Bucket(this, "XXXXXXXXXXXXXXXXXXX", {
+            removalPolicy: cdk.RemovalPolicy.DESTROY,
+            autoDeleteObjects: true,
+            bucketName: `cdkquiltnlb-access-logs-${cdk.Stack.of(this).region}-${cdk.Stack.of(this).account}`,
+        });
+
+        const region = cdk.Stack.of(this).region;
+        // Get the correct ELB account ID for the region
+        const elbAccountId = this.getELBAccountId(region);
+        
+        bucket.addToResourcePolicy(new iam.PolicyStatement({
+            effect: iam.Effect.ALLOW,
+            principals: [new iam.ServicePrincipal('logdelivery.elasticloadbalancing.amazonaws.com')],
+            actions: ['s3:PutObject'],
+            resources: [bucket.arnForObjects('*')],
+        }));
+
         const nlb = new elbv2.NetworkLoadBalancer(this, "CdkQuiltNLB", {
             vpc,
             internetFacing: true,
             crossZoneEnabled: true,
             loadBalancerName: "quilt-nlb",
         });
+
+        nlb.logAccessLogs(bucket);
+
         const listener = nlb.addListener("Listener", {
             port: this.containerConfig.port,
         });
+
         listener.addTargets("FargateService", {
             port: this.containerConfig.port,
-            targets: [fargateService],
+            targets: [fargateService]
         });
+
         return nlb;
+    }
+
+    private getELBAccountId(region: string): string {
+        const elbAccountIds: { [key: string]: string } = {
+            'us-east-1': '127311923021',
+            'us-east-2': '033677994240',
+            'us-west-1': '027434742980',
+            'us-west-2': '797873946194',
+            'af-south-1': '098369216593',
+            'ap-east-1': '754344448648',
+            'ap-southeast-3': '589379963580',
+            'ap-south-1': '718504428378',
+            'ap-northeast-3': '383597477331',
+            'ap-northeast-2': '600734575887',
+            'ap-southeast-1': '114774131450',
+            'ap-southeast-2': '783225319266',
+            'ap-northeast-1': '582318560864',
+            'ca-central-1': '985666609251',
+            'eu-central-1': '054676820928',
+            'eu-west-1': '156460612806',
+            'eu-west-2': '652711504416',
+            'eu-south-1': '635631232127',
+            'eu-west-3': '009996457667',
+            'eu-north-1': '897822967062',
+            'me-south-1': '076674570225',
+            'sa-east-1': '507241528517',
+        };
+
+        const accountId = elbAccountIds[region];
+        if (!accountId) {
+            throw new Error(`No ELB account ID found for region ${region}`);
+        }
+
+        return accountId;
     }
 
     private createHostedZone(hostedZoneId: string, zoneName: string): route53.IHostedZone {
@@ -253,4 +312,6 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             ),
         });
     }
+
 }
+
