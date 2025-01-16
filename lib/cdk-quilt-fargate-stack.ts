@@ -33,25 +33,40 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         const hostedZoneId = "Z050530821I8SLJEKKYY6";
         const dnsName = "package-engine.quilttest.com";
 
-        // 1. Create a VPC
+        const cluster = this.createCluster();
+        const repository = this.getEcrRepository(repositoryName);
+        const executionRole = this.createExecutionRole();
+        const logGroup = this.createLogGroup();
+        const taskDefinition = this.createTaskDefinition(repository, executionRole, logGroup);
+        const fargateService = this.createFargateService(cluster, taskDefinition);
+        const api = this.createApiGateway(fargateService);
+        this.configureRoute53(hostedZoneId, dnsName, api);
+
+        // Outputs
+        new cdk.CfnOutput(this, "ApiGatewayURL", { value: api.url });
+        new cdk.CfnOutput(this, "CustomDomainURL", { value: `https://${dnsName}` });
+    }
+
+    private createCluster(): ecs.Cluster {
         const vpc = new ec2.Vpc(this, "CdkQuiltFargateVpc", {
             maxAzs: 2,
             natGateways: 1,
         });
 
-        // 2. Create an ECS Cluster
-        const cluster = new ecs.Cluster(this, "CdkQuiltFargateCluster", {
+        return new ecs.Cluster(this, "CdkQuiltFargateCluster", {
             vpc,
         });
+    }
 
-        // 3. Reference an Existing ECR Repository
-        const repository = ecr.Repository.fromRepositoryName(
+    private getEcrRepository(repositoryName: string): ecr.IRepository {
+        return ecr.Repository.fromRepositoryName(
             this,
             "CdkQuiltFargateRepo",
             repositoryName,
         );
+    }
 
-        // 4. Create IAM Role for Task Execution
+    private createExecutionRole(): iam.Role {
         const executionRole = new iam.Role(
             this,
             "CdkQuiltFargateExecutionRole",
@@ -66,12 +81,20 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             ),
         );
 
-        // 5. Create Log Group
-        const logGroup = new logs.LogGroup(this, "CdkQuiltFargateLogGroup", {
+        return executionRole;
+    }
+
+    private createLogGroup(): logs.LogGroup {
+        return new logs.LogGroup(this, "CdkQuiltFargateLogGroup", {
             retention: this.containerConfig.logRetention,
         });
+    }
 
-        // 6. Create Task Definition
+    private createTaskDefinition(
+        repository: ecr.IRepository,
+        executionRole: iam.Role,
+        logGroup: logs.LogGroup,
+    ): ecs.FargateTaskDefinition {
         const taskDefinition = new ecs.FargateTaskDefinition(
             this,
             "CdkQuiltFargateTaskDef",
@@ -98,20 +121,26 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             }),
         });
 
-        // 7. Create Fargate Service
-        const fargateService = new ecs.FargateService(this, "CdkQuiltFargateService", {
+        return taskDefinition;
+    }
+
+    private createFargateService(
+        cluster: ecs.Cluster,
+        taskDefinition: ecs.FargateTaskDefinition,
+    ): ecs.FargateService {
+        return new ecs.FargateService(this, "CdkQuiltFargateService", {
             cluster,
             taskDefinition,
             assignPublicIp: true,
         });
+    }
 
-        // 8. Create API Gateway
+    private createApiGateway(fargateService: ecs.FargateService): apigateway.RestApi {
         const api = new apigateway.RestApi(this, "CdkQuiltApiGateway", {
             restApiName: "CdkQuiltService",
             description: "API Gateway for the Quilt Package Engine service.",
         });
 
-        // Add HTTP integration to API Gateway
         const apiResource = api.root.addResource("package-engine");
         apiResource.addMethod(
             "ANY",
@@ -123,7 +152,10 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             )
         );
 
-        // 9. Configure Route 53
+        return api;
+    }
+
+    private configureRoute53(hostedZoneId: string, dnsName: string, api: apigateway.RestApi): void {
         const hostedZone = route53.HostedZone.fromHostedZoneAttributes(
             this,
             "CdkQuiltHostedZone",
@@ -140,9 +172,5 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                 new route53Targets.ApiGateway(api),
             ),
         });
-
-        // Outputs
-        new cdk.CfnOutput(this, "ApiGatewayURL", { value: api.url });
-        new cdk.CfnOutput(this, "CustomDomainURL", { value: `https://${dnsName}` });
     }
 }
