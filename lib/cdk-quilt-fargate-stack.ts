@@ -117,6 +117,9 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                 memoryLimitMiB: this.containerConfig.memory,
                 cpu: this.containerConfig.cpu,
                 executionRole,
+                runtimePlatform: {
+                     cpuArchitecture: ecs.CpuArchitecture.ARM64,
+                },
             },
         );
 
@@ -128,6 +131,8 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             portMappings: [
                 {
                     containerPort: this.containerConfig.port,
+                    hostPort: this.containerConfig.port,
+                    protocol: ecs.Protocol.TCP,
                 },
             ],
             logging: ecs.LogDrivers.awsLogs({
@@ -146,7 +151,11 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         return new ecs.FargateService(this, "CdkQuiltFargateService", {
             cluster,
             taskDefinition,
-            assignPublicIp: true,
+            assignPublicIp: false,
+            deploymentController: {
+                type: ecs.DeploymentControllerType.ECS,
+            },
+            circuitBreaker: { rollback: true },
         });
     }
 
