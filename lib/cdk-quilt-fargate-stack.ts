@@ -7,6 +7,7 @@ import * as route53 from "aws-cdk-lib/aws-route53";
 import * as route53Targets from "aws-cdk-lib/aws-route53-targets";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import { Construct } from "constructs";
 
 interface ContainerConfig {
@@ -39,7 +40,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         const logGroup = this.createLogGroup();
         const taskDefinition = this.createTaskDefinition(repository, executionRole, logGroup);
         const fargateService = this.createFargateService(cluster, taskDefinition);
-        const api = this.createApiGateway(fargateService);
+        const api = this.createApiGateway(fargateService, dnsName);
         this.configureRoute53(hostedZoneId, dnsName, api);
 
         // Outputs
@@ -135,10 +136,17 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         });
     }
 
-    private createApiGateway(fargateService: ecs.FargateService): apigateway.RestApi {
+    private createApiGateway(fargateService: ecs.FargateService, dnsName: string): apigateway.RestApi {
         const api = new apigateway.RestApi(this, "CdkQuiltApiGateway", {
             restApiName: "CdkQuiltService",
             description: "API Gateway for the Quilt Package Engine service.",
+            domainName: {
+                domainName: dnsName,
+                certificate: new acm.Certificate(this, 'ApiGatewayCertificate', {
+                    domainName: dnsName,
+                    validation: acm.CertificateValidation.fromDns(),
+                }),
+            },
         });
 
         const apiResource = api.root.addResource("package-engine");
