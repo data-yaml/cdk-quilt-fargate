@@ -1,13 +1,14 @@
+import * as acm from "aws-cdk-lib/aws-certificatemanager";
+import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as cdk from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
-import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as ecr from "aws-cdk-lib/aws-ecr";
+import * as ecs from "aws-cdk-lib/aws-ecs";
+import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as logs from "aws-cdk-lib/aws-logs";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import * as route53Targets from "aws-cdk-lib/aws-route53-targets";
-import * as apigateway from "aws-cdk-lib/aws-apigateway";
-import * as logs from "aws-cdk-lib/aws-logs";
-import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import { Construct } from "constructs";
 
 interface ContainerConfig {
@@ -136,6 +137,14 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         });
     }
 
+    private createNetworkLoadBalancer(vpc: ec2.Vpc): elbv2.NetworkLoadBalancer {
+    return new elbv2.NetworkLoadBalancer(this, 'CdkQuiltNLB', {
+        vpc,
+        internetFacing: true,
+        crossZoneEnabled: true,
+        loadBalancerName: 'quilt-nlb'
+    });
+}    
     private createApiGateway(fargateService: ecs.FargateService, dnsName: string): apigateway.RestApi {
         const api = new apigateway.RestApi(this, "CdkQuiltApiGateway", {
             restApiName: "CdkQuiltService",
@@ -159,7 +168,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                 httpMethod: "ANY",
             })
         );
-        
+
         return api;
     }
 
