@@ -30,9 +30,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         super(scope, id, props);
 
         // Variables
-        const region = this.region; // Use the region from the stack context
         const repositoryName = "package-engine"; // Use the name of the existing repo
-        const imageTag = "latest"; // Replace with your desired image tag
         const hostedZoneId = "Z050530821I8SLJEKKYY6";
         const dnsName = "package-engine.quilttest.com";
 
