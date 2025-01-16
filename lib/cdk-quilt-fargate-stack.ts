@@ -166,19 +166,18 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         vpc: ec2.Vpc,
         fargateService: ecs.FargateService,
     ): elbv2.NetworkLoadBalancer {
-        const bucket = new s3.Bucket(this, "XXXXXXXXXXXXXXXXXXX", {
+        const region = cdk.Stack.of(this).region;
+        const elbAccountId = this.getELBAccountId(region);
+        const bucket = new s3.Bucket(this, "CdkQuiltNLBLogBucket", {
             removalPolicy: cdk.RemovalPolicy.DESTROY,
             autoDeleteObjects: true,
-            bucketName: `cdkquiltnlb-access-logs-${cdk.Stack.of(this).region}-${cdk.Stack.of(this).account}`,
+            bucketName: `cdkquiltnlb-access-logs-${region}-${cdk.Stack.of(this).account}`,
         });
-
-        const region = cdk.Stack.of(this).region;
-        // Get the correct ELB account ID for the region
-        const elbAccountId = this.getELBAccountId(region);
         
+        // Add bucket policy to allow ELB account to write access logs
         bucket.addToResourcePolicy(new iam.PolicyStatement({
             effect: iam.Effect.ALLOW,
-            principals: [new iam.ServicePrincipal('logdelivery.elasticloadbalancing.amazonaws.com')],
+            principals: [new iam.AccountPrincipal(elbAccountId)],
             actions: ['s3:PutObject'],
             resources: [bucket.arnForObjects('*')],
         }));
