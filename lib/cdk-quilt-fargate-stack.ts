@@ -48,6 +48,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         const fargateService = this.createFargateService(
             cluster,
             taskDefinition,
+            vpc
         );
         const nlb = this.createNetworkLoadBalancer(vpc, fargateService);
         const hostedZone = this.createHostedZone(hostedZoneId, zoneName);
@@ -141,6 +142,14 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                 logGroup,
                 streamPrefix: "CdkQuiltFargate",
             }),
+            // Add container health check
+            healthCheck: {
+                command: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"],
+                interval: cdk.Duration.seconds(30),
+                timeout: cdk.Duration.seconds(5),
+                retries: 3,
+                startPeriod: cdk.Duration.seconds(60),
+            },
         });
 
         return taskDefinition;
@@ -149,7 +158,22 @@ export class CdkQuiltFargateStack extends cdk.Stack {
     private createFargateService(
         cluster: ecs.Cluster,
         taskDefinition: ecs.FargateTaskDefinition,
+        vpc: ec2.Vpc,
     ): ecs.FargateService {
+        // Create security group for the service
+        const serviceSecurityGroup = new ec2.SecurityGroup(this, "ServiceSecurityGroup", {
+            vpc,
+            allowAllOutbound: true,
+            description: "Security group for Fargate service",
+        });
+
+        // Allow inbound from VPC CIDR
+        serviceSecurityGroup.addIngressRule(
+            ec2.Peer.ipv4(vpc.vpcCidrBlock),
+            ec2.Port.tcp(this.containerConfig.port),
+            'Allow inbound from NLB'
+        );
+
         return new ecs.FargateService(this, "CdkQuiltFargateService", {
             cluster,
             taskDefinition,
@@ -158,6 +182,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                 type: ecs.DeploymentControllerType.ECS,
             },
             // circuitBreaker: { rollback: false },
+            securityGroups: [serviceSecurityGroup],
         });
     }
 
@@ -175,7 +200,6 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             }`,
         });
 
-        // Add bucket policy to allow ELB account to write access logs
         bucket.addToResourcePolicy(
             new iam.PolicyStatement({
                 effect: iam.Effect.ALLOW,
@@ -205,10 +229,14 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             port: this.containerConfig.port,
             targets: [fargateService],
             healthCheck: {
+                path: "/health", // Added health check path
                 interval: cdk.Duration.seconds(30),
                 timeout: cdk.Duration.seconds(5),
                 healthyThresholdCount: 2,
                 unhealthyThresholdCount: 2,
+                // Added additional health check settings
+                protocol: elbv2.Protocol.HTTP,
+                port: String(this.containerConfig.port),
             },
         });
 
