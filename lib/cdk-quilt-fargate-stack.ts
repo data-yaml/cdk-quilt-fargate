@@ -22,7 +22,6 @@ interface ContainerConfig {
 }
 
 export class CdkQuiltFargateStack extends cdk.Stack {
-
     private readonly containerConfig: ContainerConfig = {
         port: 3000,
         cpu: 256,
@@ -121,7 +120,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                 cpu: this.containerConfig.cpu,
                 executionRole,
                 runtimePlatform: {
-                     cpuArchitecture: ecs.CpuArchitecture.ARM64,
+                    cpuArchitecture: ecs.CpuArchitecture.ARM64,
                 },
             },
         );
@@ -171,16 +170,20 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         const bucket = new s3.Bucket(this, "CdkQuiltNLBLogBucket", {
             removalPolicy: cdk.RemovalPolicy.DESTROY,
             autoDeleteObjects: true,
-            bucketName: `cdkquiltnlb-access-logs-${region}-${cdk.Stack.of(this).account}`,
+            bucketName: `cdkquiltnlb-access-logs-${region}-${
+                cdk.Stack.of(this).account
+            }`,
         });
-        
+
         // Add bucket policy to allow ELB account to write access logs
-        bucket.addToResourcePolicy(new iam.PolicyStatement({
-            effect: iam.Effect.ALLOW,
-            principals: [new iam.AccountPrincipal(elbAccountId)],
-            actions: ['s3:PutObject'],
-            resources: [bucket.arnForObjects('*')],
-        }));
+        bucket.addToResourcePolicy(
+            new iam.PolicyStatement({
+                effect: iam.Effect.ALLOW,
+                principals: [new iam.AccountPrincipal(elbAccountId)],
+                actions: ["s3:PutObject"],
+                resources: [bucket.arnForObjects("*")],
+            }),
+        );
 
         const nlb = new elbv2.NetworkLoadBalancer(this, "CdkQuiltNLB", {
             vpc,
@@ -197,7 +200,14 @@ export class CdkQuiltFargateStack extends cdk.Stack {
 
         listener.addTargets("FargateService", {
             port: this.containerConfig.port,
-            targets: [fargateService]
+            targets: [fargateService],
+            healthCheck: {
+                interval: cdk.Duration.seconds(30),
+                path: "/health",
+                timeout: cdk.Duration.seconds(5),
+                healthyThresholdCount: 2,
+                unhealthyThresholdCount: 2,
+            },
         });
 
         return nlb;
@@ -205,28 +215,28 @@ export class CdkQuiltFargateStack extends cdk.Stack {
 
     private getELBAccountId(region: string): string {
         const elbAccountIds: { [key: string]: string } = {
-            'us-east-1': '127311923021',
-            'us-east-2': '033677994240',
-            'us-west-1': '027434742980',
-            'us-west-2': '797873946194',
-            'af-south-1': '098369216593',
-            'ap-east-1': '754344448648',
-            'ap-southeast-3': '589379963580',
-            'ap-south-1': '718504428378',
-            'ap-northeast-3': '383597477331',
-            'ap-northeast-2': '600734575887',
-            'ap-southeast-1': '114774131450',
-            'ap-southeast-2': '783225319266',
-            'ap-northeast-1': '582318560864',
-            'ca-central-1': '985666609251',
-            'eu-central-1': '054676820928',
-            'eu-west-1': '156460612806',
-            'eu-west-2': '652711504416',
-            'eu-south-1': '635631232127',
-            'eu-west-3': '009996457667',
-            'eu-north-1': '897822967062',
-            'me-south-1': '076674570225',
-            'sa-east-1': '507241528517',
+            "us-east-1": "127311923021",
+            "us-east-2": "033677994240",
+            "us-west-1": "027434742980",
+            "us-west-2": "797873946194",
+            "af-south-1": "098369216593",
+            "ap-east-1": "754344448648",
+            "ap-southeast-3": "589379963580",
+            "ap-south-1": "718504428378",
+            "ap-northeast-3": "383597477331",
+            "ap-northeast-2": "600734575887",
+            "ap-southeast-1": "114774131450",
+            "ap-southeast-2": "783225319266",
+            "ap-northeast-1": "582318560864",
+            "ca-central-1": "985666609251",
+            "eu-central-1": "054676820928",
+            "eu-west-1": "156460612806",
+            "eu-west-2": "652711504416",
+            "eu-south-1": "635631232127",
+            "eu-west-3": "009996457667",
+            "eu-north-1": "897822967062",
+            "me-south-1": "076674570225",
+            "sa-east-1": "507241528517",
         };
 
         const accountId = elbAccountIds[region];
@@ -237,7 +247,10 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         return accountId;
     }
 
-    private createHostedZone(hostedZoneId: string, zoneName: string): route53.IHostedZone {
+    private createHostedZone(
+        hostedZoneId: string,
+        zoneName: string,
+    ): route53.IHostedZone {
         const hostedZone = route53.HostedZone.fromHostedZoneAttributes(
             this,
             "CdkQuiltHostedZone",
@@ -311,6 +324,4 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             ),
         });
     }
-
 }
-
