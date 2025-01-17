@@ -203,7 +203,6 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             targets: [fargateService],
             healthCheck: {
                 interval: cdk.Duration.seconds(30),
-                path: "/health",
                 timeout: cdk.Duration.seconds(5),
                 healthyThresholdCount: 2,
                 unhealthyThresholdCount: 2,
