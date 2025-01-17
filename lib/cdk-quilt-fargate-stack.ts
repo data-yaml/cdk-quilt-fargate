@@ -177,7 +177,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         return new ecs.FargateService(this, "CdkQuiltFargateService", {
             cluster,
             taskDefinition,
-            assignPublicIp: true,
+            assignPublicIp: false,
             deploymentController: {
                 type: ecs.DeploymentControllerType.ECS,
             },
