@@ -328,9 +328,29 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                 domainName: dnsName,
                 certificate: certificate,
             },
+            defaultCorsPreflightOptions: {
+                allowOrigins: apigateway.Cors.ALL_ORIGINS,
+                allowMethods: apigateway.Cors.ALL_METHODS,
+            },
             deployOptions: {
                 accessLogDestination: new apigateway.LogGroupLogDestination(apiLogGroup),
-                accessLogFormat: apigateway.AccessLogFormat.jsonWithStandardFields(),
+                accessLogFormat: apigateway.AccessLogFormat.custom(JSON.stringify({
+                    requestId: '$context.requestId',
+                    ip: '$context.identity.sourceIp',
+                    caller: '$context.identity.caller',
+                    user: '$context.identity.user',
+                    requestTime: '$context.requestTime',
+                    httpMethod: '$context.httpMethod',
+                    resourcePath: '$context.resourcePath',
+                    status: '$context.status',
+                    protocol: '$context.protocol',
+                    responseLength: '$context.responseLength',
+                    errorMessage: '$context.error.message',
+                    integrationError: '$context.integration.error',
+                    integrationStatus: '$context.integration.status',
+                    integrationLatency: '$context.integration.latency',
+                    integrationRequestId: '$context.integration.requestId'
+                })),
                 loggingLevel: apigateway.MethodLoggingLevel.INFO,
                 dataTraceEnabled: true,
                 tracingEnabled: true,
@@ -338,8 +358,31 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             },
         });
 
-        const apiResource = api.root.addResource("package-engine");
-        apiResource.addMethod(
+        // Add a proxy resource to catch all paths
+        const proxyResource = api.root.addResource("{proxy+}");
+        proxyResource.addMethod(
+            "ANY",
+            new apigateway.Integration({
+                type: apigateway.IntegrationType.HTTP_PROXY,
+                integrationHttpMethod: "ANY",
+                options: {
+                    connectionType: apigateway.ConnectionType.VPC_LINK,
+                    vpcLink: vpcLink,
+                    requestParameters: {
+                        "integration.request.path.proxy": "method.request.path.proxy"
+                    }
+                },
+                uri: `http://${nlb.loadBalancerDnsName}:${this.containerConfig.port}/{proxy}`,
+            }),
+            {
+                requestParameters: {
+                    "method.request.path.proxy": true
+                }
+            }
+        );
+
+        // Also add a method to the root path
+        api.root.addMethod(
             "ANY",
             new apigateway.Integration({
                 type: apigateway.IntegrationType.HTTP_PROXY,
@@ -348,8 +391,8 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                     connectionType: apigateway.ConnectionType.VPC_LINK,
                     vpcLink: vpcLink,
                 },
-                uri: `http://${nlb.loadBalancerDnsName}:${this.containerConfig.port}`,
-            }),
+                uri: `http://${nlb.loadBalancerDnsName}:${this.containerConfig.port}/`,
+            })
         );
 
         return api;
