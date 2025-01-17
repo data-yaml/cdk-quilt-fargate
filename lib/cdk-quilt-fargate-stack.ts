@@ -315,12 +315,26 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             targets: [nlb],
         });
 
+        // Create log group with consistent naming
+        const apiLogGroup = new logs.LogGroup(this, 'CdkQuiltApiGatewayLogs', {
+            retention: this.containerConfig.logRetention,
+            removalPolicy: cdk.RemovalPolicy.DESTROY
+        });
+
         const api = new apigateway.RestApi(this, "CdkQuiltApiGateway", {
             restApiName: "CdkQuiltService",
             description: "API Gateway for the Quilt Package Engine service",
             domainName: {
                 domainName: dnsName,
                 certificate: certificate,
+            },
+            deployOptions: {
+                accessLogDestination: new apigateway.LogGroupLogDestination(apiLogGroup),
+                accessLogFormat: apigateway.AccessLogFormat.jsonWithStandardFields(),
+                loggingLevel: apigateway.MethodLoggingLevel.INFO,
+                dataTraceEnabled: true,
+                tracingEnabled: true,
+                metricsEnabled: true,
             },
         });
 
