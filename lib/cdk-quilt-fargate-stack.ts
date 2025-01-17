@@ -44,6 +44,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
 
         const taskDefinition = this.createTaskDefinition(
             repository,
+            dnsName,
         );
         const fargateService = this.createFargateService(
             cluster,
@@ -110,6 +111,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
 
     private createTaskDefinition(
         repository: ecr.IRepository,
+        dnsName: string,
     ): ecs.FargateTaskDefinition {
         const executionRole = this.createExecutionRole();
         const logGroup = this.createLogGroup();
@@ -131,6 +133,9 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                 repository,
                 this.containerConfig.imageTag,
             ),
+            environment: {
+                PUBLIC_DNS_NAME: dnsName,
+            },
             portMappings: [
                 {
                     containerPort: this.containerConfig.port,
