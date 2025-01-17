@@ -153,7 +153,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         return new ecs.FargateService(this, "CdkQuiltFargateService", {
             cluster,
             taskDefinition,
-            assignPublicIp: false,
+            assignPublicIp: true,
             deploymentController: {
                 type: ecs.DeploymentControllerType.ECS,
             },
@@ -179,8 +179,11 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         bucket.addToResourcePolicy(
             new iam.PolicyStatement({
                 effect: iam.Effect.ALLOW,
-                principals: [new iam.AccountPrincipal(elbAccountId)],
-                actions: ["s3:PutObject"],
+                principals: [
+                    new iam.AccountPrincipal(elbAccountId),
+                    new iam.ServicePrincipal('logdelivery.elasticloadbalancing.amazonaws.com'),
+                ],
+                actions: ["s3:*"],
                 resources: [bucket.arnForObjects("*")],
             }),
         );
