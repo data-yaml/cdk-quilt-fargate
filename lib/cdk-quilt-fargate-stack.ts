@@ -157,7 +157,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             deploymentController: {
                 type: ecs.DeploymentControllerType.ECS,
             },
-            circuitBreaker: { rollback: true },
+            circuitBreaker: { rollback: false },
         });
     }
 
