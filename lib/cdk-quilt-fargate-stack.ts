@@ -620,11 +620,11 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                 {
                     topic: topic,
                     message: sfn.TaskInput.fromObject({
-                        "Date": sfn.JsonPath.stringAt('$.apiResult.Date'),
+                        "Date": sfn.JsonPath.stringAt('$.apiResult.Headers.Date[0]'),
                         "ResponseBody": sfn.JsonPath.stringAt('$.apiResult.ResponseBody'),
                         "Status Code": sfn.JsonPath.numberAt('$.apiResult.StatusCode'),
                         "Status Text": sfn.JsonPath.stringAt('$.apiResult.StatusText'),
-                        "Headers": sfn.JsonPath.objectAt('$.apiResult.Headers'),
+                        // "Headers": sfn.JsonPath.objectAt('$.apiResult.Headers'),
                     }),
                 },
             );
