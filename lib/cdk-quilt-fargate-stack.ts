@@ -24,9 +24,9 @@ interface ContainerConfig {
 }
 
 interface CdkQuiltFargateStackProps extends cdk.StackProps {
-    repositoryName: string;
-    hostedZoneId: string;
-    zoneName: string;
+    projectName: string;
+    zoneID: string;
+    zoneDomain: string;
 }
 export class CdkQuiltFargateStack extends cdk.Stack {
     private readonly containerConfig: ContainerConfig = {
@@ -40,12 +40,12 @@ export class CdkQuiltFargateStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props: CdkQuiltFargateStackProps) {
         super(scope, id, props);
 
-        const { repositoryName, hostedZoneId, zoneName } = props;
-        const dnsName = `${repositoryName}.${zoneName}`;
+        const { projectName, zoneID, zoneDomain: zoneDomain } = props;
+        const dnsName = `${projectName}.${zoneDomain}`;
 
         const vpc = this.createVpc();
         const cluster = this.createCluster(vpc);
-        const repository = this.getEcrRepository(repositoryName);
+        const repository = this.getEcrRepository(projectName);
 
         const taskDefinition = this.createTaskDefinition(
             repository,
@@ -57,7 +57,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             vpc,
         );
         const nlb = this.createNetworkLoadBalancer(vpc, fargateService);
-        const hostedZone = this.createHostedZone(hostedZoneId, zoneName);
+        const hostedZone = this.createHostedZone(zoneID, zoneDomain);
         const certificate = this.createRoute53Certificate(hostedZone, dnsName);
         const api = this.createApiGateway(certificate, dnsName, nlb);
         this.configureRoute53(hostedZone, dnsName, api);
@@ -87,11 +87,11 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         });
     }
 
-    private getEcrRepository(repositoryName: string): ecr.IRepository {
+    private getEcrRepository(projectName: string): ecr.IRepository {
         return ecr.Repository.fromRepositoryName(
             this,
             "CdkQuiltFargateRepo",
-            repositoryName,
+            projectName,
         );
     }
 
@@ -302,15 +302,15 @@ export class CdkQuiltFargateStack extends cdk.Stack {
     }
 
     private createHostedZone(
-        hostedZoneId: string,
-        zoneName: string,
+        zoneID: string,
+        zoneDomain: string,
     ): route53.IHostedZone {
         const hostedZone = route53.HostedZone.fromHostedZoneAttributes(
             this,
             "CdkQuiltHostedZone",
             {
-                hostedZoneId,
-                zoneName,
+                hostedZoneId: zoneID,
+                zoneName: zoneDomain,
             },
         );
         return hostedZone;
@@ -429,12 +429,12 @@ export class CdkQuiltFargateStack extends cdk.Stack {
 
     private configureRoute53(
         hostedZone: route53.IHostedZone,
-        repositoryName: string,
+        projectName: string,
         api: apigateway.RestApi,
     ): void {
         new route53.ARecord(this, "CdkQuiltAliasRecord", {
             zone: hostedZone,
-            recordName: repositoryName,
+            recordName: projectName,
             target: route53.RecordTarget.fromAlias(
                 new route53Targets.ApiGateway(api),
             ),
@@ -448,12 +448,11 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         });
         const managedPolicyNames = [
             "AmazonAPIGatewayInvokeFullAccess",
+            "AmazonEventBridgeFullAccess",
+            "AmazonSNSFullAccess",
+            "AmazonSQSFullAccess",
             "AWSXRayDaemonWriteAccess",
             "CloudWatchLogsFullAccess",
-            "EventBridgeFullAccess",
-            "SnsPublishPolicy",
-            "SqsSendMessagePolicy",
-            "states:StartExecution",
         ];
         for (const policyName of managedPolicyNames) {
             const policy = iam.ManagedPolicy.fromAwsManagedPolicyName(
@@ -522,10 +521,9 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             api,
             "CreatePackage",
             "POST",
-            "/registries/{*}/packages",
+            "/registries/udp-spec/packages",
             query,
-            ["bucket_name"],
+            // ["bucket_name"],
         );
-
     }
 }
