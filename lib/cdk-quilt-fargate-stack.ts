@@ -24,6 +24,7 @@ interface ContainerConfig {
 }
 
 interface CdkQuiltFargateStackProps extends cdk.StackProps {
+    email: string;
     projectName: string;
     zoneID: string;
     zoneDomain: string;
@@ -40,7 +41,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props: CdkQuiltFargateStackProps) {
         super(scope, id, props);
 
-        const { projectName, zoneID, zoneDomain: zoneDomain } = props;
+        const { email, projectName, zoneID, zoneDomain: zoneDomain } = props;
         const dnsName = `${projectName}.${zoneDomain}`;
 
         const vpc = this.createVpc();
