@@ -566,7 +566,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         ];
     }
 
-    private createSendEventTask(path: string, type: string): sfn.TaskStateBase {
+    private createSendEventTask(path: string, type: string): sfn.IChainable {
         return new tasks.EventBridgePutEvents(
             this,
             `SendEventToEventBridge${type}`,
@@ -581,6 +581,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                         }),
                     },
                 ],
+                resultPath: "$.eventResult",
             },
         );
     }
@@ -602,14 +603,15 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                 `CdkQuiltNotify${type}Topic`,
                 {
                     topic: topic,
-                    message: sfn.TaskInput.fromJsonPathAt("$.detail"),
+                    message: sfn.TaskInput.fromJsonPathAt("$"),
                 },
             );
+            const chain = sfn.Chain.start(sendEventTask).next(notifyTopicTask);
 
             // Define the state machine
             const stateMachine = new sfn.StateMachine(this, stateMachineName, {
-                definition: sendEventTask.next(notifyTopicTask),
                 stateMachineName: stateMachineName,
+                definitionBody: sfn.DefinitionBody.fromChainable(chain),
             });
             console.log(`Created state machine: ${stateMachineName}`);
         }
