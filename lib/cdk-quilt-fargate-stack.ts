@@ -5,11 +5,13 @@ import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
+import * as events from "aws-cdk-lib/aws-events";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import * as route53Targets from "aws-cdk-lib/aws-route53-targets";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import * as targets from "aws-cdk-lib/aws-events-targets";
 
 import { Construct } from "constructs";
 
@@ -49,18 +51,23 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         const fargateService = this.createFargateService(
             cluster,
             taskDefinition,
-            vpc
+            vpc,
         );
         const nlb = this.createNetworkLoadBalancer(vpc, fargateService);
         const hostedZone = this.createHostedZone(hostedZoneId, zoneName);
         const certificate = this.createRoute53Certificate(hostedZone, dnsName);
         const api = this.createApiGateway(certificate, dnsName, nlb);
         this.configureRoute53(hostedZone, dnsName, api);
+        const invokeApiRole = this.createInvokeApiRole();
+        this.createEventBridgeRules(api);
 
         // Outputs
         new cdk.CfnOutput(this, "ApiGatewayURL", { value: api.url });
         new cdk.CfnOutput(this, "CustomDomainURL", {
             value: `https://${dnsName}`,
+        });
+        new cdk.CfnOutput(this, "InvokeApiRoleArn", {
+            value: invokeApiRole.roleArn,
         });
     }
 
@@ -149,7 +156,10 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             }),
             // Add container health check
             healthCheck: {
-                command: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"],
+                command: [
+                    "CMD-SHELL",
+                    "curl -f http://localhost:3000/health || exit 1",
+                ],
                 interval: cdk.Duration.seconds(30),
                 timeout: cdk.Duration.seconds(5),
                 retries: 3,
@@ -166,17 +176,21 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         vpc: ec2.Vpc,
     ): ecs.FargateService {
         // Create security group for the service
-        const serviceSecurityGroup = new ec2.SecurityGroup(this, "ServiceSecurityGroup", {
-            vpc,
-            allowAllOutbound: true,
-            description: "Security group for Fargate service",
-        });
+        const serviceSecurityGroup = new ec2.SecurityGroup(
+            this,
+            "ServiceSecurityGroup",
+            {
+                vpc,
+                allowAllOutbound: true,
+                description: "Security group for Fargate service",
+            },
+        );
 
         // Allow inbound from VPC CIDR
         serviceSecurityGroup.addIngressRule(
             ec2.Peer.ipv4(vpc.vpcCidrBlock),
             ec2.Port.tcp(this.containerConfig.port),
-            'Allow inbound from NLB'
+            "Allow inbound from NLB",
         );
 
         return new ecs.FargateService(this, "CdkQuiltFargateService", {
@@ -210,7 +224,9 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                 effect: iam.Effect.ALLOW,
                 principals: [
                     new iam.AccountPrincipal(elbAccountId),
-                    new iam.ServicePrincipal('logdelivery.elasticloadbalancing.amazonaws.com'),
+                    new iam.ServicePrincipal(
+                        "logdelivery.elasticloadbalancing.amazonaws.com",
+                    ),
                 ],
                 actions: ["s3:*"],
                 resources: [bucket.arnForObjects("*")],
@@ -321,9 +337,9 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         });
 
         // Create log group with consistent naming
-        const apiLogGroup = new logs.LogGroup(this, 'CdkQuiltApiGatewayLogs', {
+        const apiLogGroup = new logs.LogGroup(this, "CdkQuiltApiGatewayLogs", {
             retention: this.containerConfig.logRetention,
-            removalPolicy: cdk.RemovalPolicy.DESTROY
+            removalPolicy: cdk.RemovalPolicy.DESTROY,
         });
 
         const api = new apigateway.RestApi(this, "CdkQuiltApiGateway", {
@@ -338,24 +354,28 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                 allowMethods: apigateway.Cors.ALL_METHODS,
             },
             deployOptions: {
-                accessLogDestination: new apigateway.LogGroupLogDestination(apiLogGroup),
-                accessLogFormat: apigateway.AccessLogFormat.custom(JSON.stringify({
-                    requestId: '$context.requestId',
-                    ip: '$context.identity.sourceIp',
-                    caller: '$context.identity.caller',
-                    user: '$context.identity.user',
-                    requestTime: '$context.requestTime',
-                    httpMethod: '$context.httpMethod',
-                    resourcePath: '$context.resourcePath',
-                    status: '$context.status',
-                    protocol: '$context.protocol',
-                    responseLength: '$context.responseLength',
-                    errorMessage: '$context.error.message',
-                    integrationError: '$context.integration.error',
-                    integrationStatus: '$context.integration.status',
-                    integrationLatency: '$context.integration.latency',
-                    integrationRequestId: '$context.integration.requestId'
-                })),
+                accessLogDestination: new apigateway.LogGroupLogDestination(
+                    apiLogGroup,
+                ),
+                accessLogFormat: apigateway.AccessLogFormat.custom(
+                    JSON.stringify({
+                        requestId: "$context.requestId",
+                        ip: "$context.identity.sourceIp",
+                        caller: "$context.identity.caller",
+                        user: "$context.identity.user",
+                        requestTime: "$context.requestTime",
+                        httpMethod: "$context.httpMethod",
+                        resourcePath: "$context.resourcePath",
+                        status: "$context.status",
+                        protocol: "$context.protocol",
+                        responseLength: "$context.responseLength",
+                        errorMessage: "$context.error.message",
+                        integrationError: "$context.integration.error",
+                        integrationStatus: "$context.integration.status",
+                        integrationLatency: "$context.integration.latency",
+                        integrationRequestId: "$context.integration.requestId",
+                    }),
+                ),
                 loggingLevel: apigateway.MethodLoggingLevel.INFO,
                 dataTraceEnabled: true,
                 tracingEnabled: true,
@@ -374,16 +394,17 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                     connectionType: apigateway.ConnectionType.VPC_LINK,
                     vpcLink: vpcLink,
                     requestParameters: {
-                        "integration.request.path.proxy": "method.request.path.proxy"
-                    }
+                        "integration.request.path.proxy":
+                            "method.request.path.proxy",
+                    },
                 },
                 uri: `http://${nlb.loadBalancerDnsName}:${this.containerConfig.port}/{proxy}`,
             }),
             {
                 requestParameters: {
-                    "method.request.path.proxy": true
-                }
-            }
+                    "method.request.path.proxy": true,
+                },
+            },
         );
 
         // Also add a method to the root path
@@ -397,7 +418,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                     vpcLink: vpcLink,
                 },
                 uri: `http://${nlb.loadBalancerDnsName}:${this.containerConfig.port}/`,
-            })
+            }),
         );
 
         return api;
@@ -415,5 +436,93 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                 new route53Targets.ApiGateway(api),
             ),
         });
+    }
+
+    // Create IAM Role for StepFunction/EventBridge to invoke the API Gateway
+    private createInvokeApiRole(): iam.Role {
+        const role = new iam.Role(this, "CdkQuiltInvokeApiRole", {
+            assumedBy: new iam.ServicePrincipal("events.amazonaws.com"),
+        });
+        const managedPolicyNames = [
+            "AmazonAPIGatewayInvokeFullAccess",
+            "AWSXRayDaemonWriteAccess",
+            "CloudWatchLogsFullAccess",
+            "EventBridgeFullAccess",
+            "SnsPublishPolicy",
+            "SqsSendMessagePolicy",
+            "states:StartExecution",
+        ];
+        for (const policyName of managedPolicyNames) {
+            const policy = iam.ManagedPolicy.fromAwsManagedPolicyName(
+                policyName,
+            );
+            role.addManagedPolicy(policy);
+        }
+        role.grant(new iam.ServicePrincipal("events.amazonaws.com"));
+        role.grant(new iam.ServicePrincipal("states.amazonaws.com"));
+        return role;
+    }
+
+    // Create a custom EventBridge rule to invokes the API Gateway endpoint
+    // with arguments: bucket_name, s3_folder, package_handle, metadata<dict>
+    private addRule(
+        api: apigateway.RestApi,
+        ruleName: string,
+        method: string,
+        path: string,
+        queryParams?: { [key: string]: string },
+        pathParams?: string[],
+    ): void {
+        // Count the number of path parameters in the path
+        const pathParamCount = (path.match(/{[^}]+}/g) || []).length;
+
+        // Validate that the number of path parameters matches the provided values
+        if (pathParamCount !== (pathParams?.length || 0)) {
+            throw new Error(
+                `Path '${path}' has ${pathParamCount} parameters but ${
+                    pathParams?.length || 0
+                } values were provided`,
+            );
+        }
+
+        const rule = new events.Rule(this, `CkdQuilt${ruleName}Rule`, {
+            eventPattern: {
+                source: ["quilt.package-engine"],
+                detailType: [ruleName],
+            },
+        });
+
+        rule.addTarget(
+            new targets.ApiGateway(api, {
+                method: method,
+                path: path,
+                stage: "prod",
+                pathParameterValues: pathParams,
+                queryStringParameters: queryParams,
+            }),
+        );
+    }
+
+    private createEventBridgeRules(
+        api: apigateway.RestApi,
+    ): void {
+        this.addRule(api, "GetInfo", "GET", "/info");
+        this.addRule(api, "GetHealth", "GET", "/health");
+        this.addRule(api, "TestApiKey", "GET", "/test_api_key");
+
+        const query = {
+            "s3_folder": "$.detail.s3_folder", // Maps to s3-folder from the event
+            "package_handle": "$.detail.package_name", // Maps to package-name from the event
+            "metadata": "$.detail.metadata", // Maps to metadata from the event
+        };
+        this.addRule(
+            api,
+            "CreatePackage",
+            "POST",
+            "/registries/{*}/packages",
+            query,
+            ["bucket_name"],
+        );
+
     }
 }
