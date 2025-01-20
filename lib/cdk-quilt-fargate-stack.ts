@@ -7,11 +7,16 @@ import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import * as events from "aws-cdk-lib/aws-events";
 import * as iam from "aws-cdk-lib/aws-iam";
+
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import * as route53Targets from "aws-cdk-lib/aws-route53-targets";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import * as sfn from "aws-cdk-lib/aws-stepfunctions";
+import * as sns from "aws-cdk-lib/aws-sns";
+import * as sns_subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import * as targets from "aws-cdk-lib/aws-events-targets";
+import * as tasks from "aws-cdk-lib/aws-stepfunctions-tasks";
 
 import { Construct } from "constructs";
 
@@ -29,6 +34,7 @@ interface CdkQuiltFargateStackProps extends cdk.StackProps {
     zoneID: string;
     zoneDomain: string;
 }
+
 export class CdkQuiltFargateStack extends cdk.Stack {
     private readonly containerConfig: ContainerConfig = {
         port: 3000,
@@ -38,12 +44,20 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         logRetention: logs.RetentionDays.ONE_WEEK,
     };
 
-    constructor(scope: Construct, id: string, props: CdkQuiltFargateStackProps) {
+    private readonly eventSource: string;
+
+    constructor(
+        scope: Construct,
+        id: string,
+        props: CdkQuiltFargateStackProps,
+    ) {
         super(scope, id, props);
 
         const { email, projectName, zoneID, zoneDomain: zoneDomain } = props;
         const dnsName = `${projectName}.${zoneDomain}`;
+        this.eventSource = `quilt.${projectName}`;
 
+        const topic = this.createTopic(email);
         const vpc = this.createVpc();
         const cluster = this.createCluster(vpc);
         const repository = this.getEcrRepository(projectName);
@@ -63,7 +77,16 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         const api = this.createApiGateway(certificate, dnsName, nlb);
         this.configureRoute53(hostedZone, dnsName, api);
         const invokeApiRole = this.createInvokeApiRole();
-        this.createEventBridgeRules(api);
+
+        const getters = {
+            "info": "GetInfo",
+            "health": "GetHealth",
+            "test_api_key": "TestApiKey",
+        };
+
+        this.createEventBridgeRules(api, getters);
+        // Create state machines to call each getter via EventBridge and notify topic
+        this.createStateMachines(topic, getters);
 
         // Outputs
         new cdk.CfnOutput(this, "ApiGatewayURL", { value: api.url });
@@ -73,6 +96,16 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         new cdk.CfnOutput(this, "InvokeApiRoleArn", {
             value: invokeApiRole.roleArn,
         });
+    }
+
+    private createTopic(email: string): sns.Topic {
+        const topic = new sns.Topic(this, "CdkQuiltFargateTopic", {
+            topicName: "CdkQuiltFargateTopic",
+            displayName: "CdkQuiltFargateTopic",
+            fifo: false,
+        });
+        topic.addSubscription(new sns_subscriptions.EmailSubscription(email));
+        return topic;
     }
 
     private createVpc(): ec2.Vpc {
@@ -475,7 +508,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         path: string,
         queryParams?: { [key: string]: string },
         pathParams?: string[],
-    ): void {
+    ): events.Rule {
         // Count the number of path parameters in the path
         const pathParamCount = (path.match(/{[^}]+}/g) || []).length;
 
@@ -490,7 +523,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
 
         const rule = new events.Rule(this, `CkdQuilt${ruleName}Rule`, {
             eventPattern: {
-                source: ["quilt.package-engine"],
+                source: [this.eventSource],
                 detailType: [ruleName],
             },
         });
@@ -504,27 +537,80 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                 queryStringParameters: queryParams,
             }),
         );
+        return rule;
     }
 
     private createEventBridgeRules(
         api: apigateway.RestApi,
-    ): void {
-        this.addRule(api, "GetInfo", "GET", "/info");
-        this.addRule(api, "GetHealth", "GET", "/health");
-        this.addRule(api, "TestApiKey", "GET", "/test_api_key");
-
+        getters: { [key: string]: string },
+    ): events.Rule[] {
         const query = {
             "s3_folder": "$.detail.s3_folder", // Maps to s3-folder from the event
             "package_handle": "$.detail.package_name", // Maps to package-name from the event
             "metadata": "$.detail.metadata", // Maps to metadata from the event
         };
-        this.addRule(
+        const createPackageRule = this.addRule(
             api,
             "CreatePackage",
             "POST",
-            "/registries/udp-spec/packages",
+            "/registries/udp-spec/packages", // hardcode `udp-spec` vs `{*}` or `*` for bucket_name
             query,
-            // ["bucket_name"],
+            // ["$.detail.bucket_name"],
         );
+        const get_rules = Object.entries(getters).map(([path, name]) =>
+            this.addRule(api, name, "GET", `/${path}`)
+        );
+        return [
+            createPackageRule,
+            ...get_rules,
+        ];
+    }
+
+    // Factored out method to create the send event task
+    private createSendEventTask(path: string, type: string): sfn.TaskStateBase {
+        return new tasks.CallAwsService(this, `CdkQuiltSendEvent${type}`, {
+            service: "events",
+            action: "putEvents",
+            parameters: {
+                Entries: [{
+                    Source: this.eventSource,
+                    DetailType: type,
+                    Detail: sfn.TaskInput.fromObject({
+                        message: `Event for ${type}`,
+                        path: path,
+                    }).value,
+                }],
+            },
+            iamResources: ["*"],
+        });
+    }
+
+    // Create state machines to call each getter by sending an EventBridge event
+    // - source: this.eventSource,
+    // - detailType: value (from getters)
+    // then notifying topic
+    private createStateMachines(
+        topic: sns.Topic,
+        getters: { [key: string]: string },
+    ): void {
+        for (const [path, type] of Object.entries(getters)) {
+            const stateMachineName = `CdkQuilt${type}StateMachine`;
+
+            const sendEventTask = this.createSendEventTask(path, type);
+            const notifyTopicTask = new tasks.SnsPublish(
+                this,
+                `CdkQuiltNotify${type}Topic`,
+                {
+                    topic: topic,
+                    message: sfn.TaskInput.fromJsonPathAt("$.detail"),
+                },
+            );
+
+            // Define the state machine
+            const stateMachine = new sfn.StateMachine(this, stateMachineName, {
+                definition: sendEventTask.next(notifyTopicTask),
+                stateMachineName: stateMachineName,
+            });    
+        }
     }
 }
