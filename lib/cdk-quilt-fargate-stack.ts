@@ -566,23 +566,23 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         ];
     }
 
-    // Factored out method to create the send event task
     private createSendEventTask(path: string, type: string): sfn.TaskStateBase {
-        return new tasks.CallAwsService(this, `CdkQuiltSendEvent${type}`, {
-            service: "events",
-            action: "putEvents",
-            parameters: {
-                Entries: [{
-                    Source: this.eventSource,
-                    DetailType: type,
-                    Detail: sfn.TaskInput.fromObject({
-                        message: `Event for ${type}`,
-                        path: path,
-                    }).value,
-                }],
+        return new tasks.EventBridgePutEvents(
+            this,
+            `SendEventToEventBridge${type}`,
+            {
+                entries: [
+                    {
+                        source: this.eventSource,
+                        detailType: type,
+                        detail: sfn.TaskInput.fromObject({
+                            message: `Event for ${type}`,
+                            path: path,
+                        }),
+                    },
+                ],
             },
-            iamResources: ["*"],
-        });
+        );
     }
 
     // Create state machines to call each getter by sending an EventBridge event
@@ -610,7 +610,8 @@ export class CdkQuiltFargateStack extends cdk.Stack {
             const stateMachine = new sfn.StateMachine(this, stateMachineName, {
                 definition: sendEventTask.next(notifyTopicTask),
                 stateMachineName: stateMachineName,
-            });    
+            });
+            console.log(`Created state machine: ${stateMachineName}`);
         }
     }
 }
