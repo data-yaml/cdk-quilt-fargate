@@ -86,7 +86,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
 
         this.createEventBridgeRules(api, getters);
         // Create state machines to call each getter via EventBridge and notify topic
-        this.createStateMachines(topic, getters);
+        this.createStateMachines(api, topic, getters);
 
         // Outputs
         new cdk.CfnOutput(this, "ApiGatewayURL", { value: api.url });
@@ -586,18 +586,34 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         );
     }
 
+    private createApiTask(api: apigateway.RestApi, method: tasks.HttpMethod, path: string): sfn.IChainable {
+        return new tasks.CallApiGatewayRestApiEndpoint(
+            this,
+            `CallApiGateway${path}`,
+            {
+                api,
+                stageName: "prod",
+                method: method,
+                apiPath: `/${path}`,
+                resultPath: `$.apiResult.${path}`,
+            },
+        );
+    }
+    
     // Create state machines to call each getter by sending an EventBridge event
     // - source: this.eventSource,
     // - detailType: value (from getters)
     // then notifying topic
     private createStateMachines(
+        api: apigateway.RestApi,
         topic: sns.Topic,
         getters: { [key: string]: string },
     ): void {
         for (const [path, type] of Object.entries(getters)) {
             const stateMachineName = `CdkQuilt${type}StateMachine`;
 
-            const sendEventTask = this.createSendEventTask(path, type);
+            // const callApiTask = this.createSendEventTask(path, type);
+            const callApiTask = this.createApiTask(api, tasks.HttpMethod.GET, path);
             const notifyTopicTask = new tasks.SnsPublish(
                 this,
                 `CdkQuiltNotify${type}Topic`,
@@ -606,7 +622,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                     message: sfn.TaskInput.fromJsonPathAt("$"),
                 },
             );
-            const chain = sfn.Chain.start(sendEventTask).next(notifyTopicTask);
+            const chain = sfn.Chain.start(callApiTask).next(notifyTopicTask);
 
             // Define the state machine
             const stateMachine = new sfn.StateMachine(this, stateMachineName, {
