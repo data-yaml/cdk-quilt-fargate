@@ -4,7 +4,7 @@ import { CdkQuiltFargateStack } from "../lib/cdk-quilt-fargate-stack";
 
 const app = new cdk.App();
 new CdkQuiltFargateStack(app, "CdkQuiltFargateStack", {
-    email: "ernest+vivos@quiltdata.io",
+    email: "omics-nov-2023-aaaalfn3qsvil4dfelmhhncbra@quiltdata.slack.com",
     projectName: "package-engine",
     zoneDomain: "quilttest.com",
     zoneID: "Z050530821I8SLJEKKYY6",

@@ -595,7 +595,7 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                 stageName: "prod",
                 method: method,
                 apiPath: `/${path}`,
-                resultPath: `$.apiResult.${path}`,
+                resultPath: `$.apiResult`,
             },
         );
     }
@@ -619,7 +619,13 @@ export class CdkQuiltFargateStack extends cdk.Stack {
                 `CdkQuiltNotify${type}Topic`,
                 {
                     topic: topic,
-                    message: sfn.TaskInput.fromJsonPathAt("$"),
+                    message: sfn.TaskInput.fromObject({
+                        "Date": sfn.JsonPath.stringAt('$.apiResult.Date'),
+                        "ResponseBody": sfn.JsonPath.stringAt('$.apiResult.ResponseBody'),
+                        "Status Code": sfn.JsonPath.numberAt('$.apiResult.StatusCode'),
+                        "Status Text": sfn.JsonPath.stringAt('$.apiResult.StatusText'),
+                        "Headers": sfn.JsonPath.objectAt('$.apiResult.Headers'),
+                    }),
                 },
             );
             const chain = sfn.Chain.start(callApiTask).next(notifyTopicTask);
