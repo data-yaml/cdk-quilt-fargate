@@ -23,6 +23,11 @@ interface ContainerConfig {
     logRetention: logs.RetentionDays;
 }
 
+interface CdkQuiltFargateStackProps extends cdk.StackProps {
+    repositoryName: string;
+    hostedZoneId: string;
+    zoneName: string;
+}
 export class CdkQuiltFargateStack extends cdk.Stack {
     private readonly containerConfig: ContainerConfig = {
         port: 3000,
@@ -32,12 +37,10 @@ export class CdkQuiltFargateStack extends cdk.Stack {
         logRetention: logs.RetentionDays.ONE_WEEK,
     };
 
-    constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+    constructor(scope: Construct, id: string, props: CdkQuiltFargateStackProps) {
         super(scope, id, props);
 
-        const repositoryName = "package-engine"; // Use the name of the existing repo
-        const hostedZoneId = "Z050530821I8SLJEKKYY6";
-        const zoneName = "quilttest.com";
+        const { repositoryName, hostedZoneId, zoneName } = props;
         const dnsName = `${repositoryName}.${zoneName}`;
 
         const vpc = this.createVpc();
